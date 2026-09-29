@@ -1,0 +1,159 @@
+### =====================================================================
+### Taller 7 - solicitudes-avanzadas.http
+### Ejecutable con: IntelliJ HTTP Client, VS Code (REST Client) o similar.
+### Arranque previo:  mvn spring-boot:run   (PostgreSQL)
+###             o:    mvn spring-boot:run "-Dspring-boot.run.profiles=h2"   (sin PostgreSQL)
+### Las variables {{...}} se capturan de las respuestas previas con "# @name".
+### =====================================================================
+@host = http://localhost:8080
+
+### 0.a Preparación: crear un cliente
+# @name crearCliente
+POST {{host}}/api/clientes
+Content-Type: application/json
+
+{
+  "nombre": "Ana Torres",
+  "email": "ana.torres@correo.com"
+}
+
+###
+@clienteId = {{crearCliente.response.body.$.id}}
+
+### 0.b Preparación: crear una habitación estándar
+# @name crearEstandar
+POST {{host}}/api/habitaciones/estandar
+Content-Type: application/json
+
+{
+  "numero": "P01-101",
+  "precioPorNoche": 80.0,
+  "capacidadMaxima": 2,
+  "camasIndividuales": 2
+}
+
+###
+@estandarId = {{crearEstandar.response.body.$.id}}
+
+### =====================================================================
+### PRUEBA 1 - Creación de Suite Presidencial
+### Esperado: 201 Created + header Location + body con "id" y "tipo": "SUITE"
+### =====================================================================
+# @name crearSuite
+POST {{host}}/api/habitaciones/suites
+Content-Type: application/json
+
+{
+  "numero": "P05-501",
+  "precioPorNoche": 350.0,
+  "capacidadMaxima": 2,
+  "jacuzziPrivado": true,
+  "incluyeMayordomo": true
+}
+
+###
+@suiteId = {{crearSuite.response.body.$.id}}
+
+### =====================================================================
+### PRUEBA 2 - Consulta polimórfica
+### Esperado: 200 OK, array donde conviven "tipo":"ESTANDAR" (camasIndividuales)
+###           y "tipo":"SUITE" (jacuzziPrivado, incluyeMayordomo), sin errores de casteo
+### =====================================================================
+GET {{host}}/api/habitaciones
+Accept: application/json
+
+### =====================================================================
+### PRUEBA 3 - Resumen ejecutivo del cliente
+### Primero se generan reservas: 3 noches x 80 = 240 (confirmada) y 2 noches x 350 = 700 (confirmada)
+### Esperado: totalReservasRealizadas = 2, montoTotalGastado = 940.00, sin ciclos ni $ref
+### =====================================================================
+# @name reserva1
+POST {{host}}/api/clientes/{{clienteId}}/reservas
+Content-Type: application/json
+
+{
+  "habitacionId": "{{estandarId}}",
+  "fechaInicio": "2026-12-10",
+  "fechaFin": "2026-12-13",
+  "politica": "FLEXIBLE"
+}
+
+###
+POST {{host}}/api/clientes/{{clienteId}}/reservas/{{reserva1.response.body.$.idReserva}}/confirmar
+
+###
+# @name reserva2
+POST {{host}}/api/clientes/{{clienteId}}/reservas
+Content-Type: application/json
+
+{
+  "habitacionId": "{{suiteId}}",
+  "fechaInicio": "2027-01-05",
+  "fechaFin": "2027-01-07",
+  "politica": "ESTRICTA"
+}
+
+###
+POST {{host}}/api/clientes/{{clienteId}}/reservas/{{reserva2.response.body.$.idReserva}}/confirmar
+
+###
+GET {{host}}/api/clientes/{{clienteId}}/resumen
+Accept: application/json
+
+### =====================================================================
+### PRUEBA 4 - Actualización selectiva (PATCH)
+### Esperado: 200 OK. Sólo cambia "nombre"; email, activo y penalizaciones intactos.
+### =====================================================================
+PATCH {{host}}/api/clientes/{{clienteId}}
+Content-Type: application/json
+
+{
+  "nombre": "Nuevo Nombre Modificado"
+}
+
+### Verificación: releer el cliente (el email debe seguir siendo ana.torres@correo.com)
+GET {{host}}/api/clientes/{{clienteId}}
+
+### =====================================================================
+### EXTRAS - Contrato de errores
+### =====================================================================
+
+### Mass assignment: activo/penalizaciones/id enviados por el cliente se ignoran (200, sin cambios)
+PATCH {{host}}/api/clientes/{{clienteId}}
+Content-Type: application/json
+
+{
+  "activo": false,
+  "penalizaciones": 99,
+  "id": "00000000-0000-0000-0000-000000000000"
+}
+
+### 400 Bad Request - número de habitación con formato inválido
+POST {{host}}/api/habitaciones/suites
+Content-Type: application/json
+
+{ "numero": "501", "precioPorNoche": 350.0, "capacidadMaxima": 2, "jacuzziPrivado": true, "incluyeMayordomo": true }
+
+### 409 Conflict - habitación duplicada
+POST {{host}}/api/habitaciones/suites
+Content-Type: application/json
+
+{ "numero": "P05-501", "precioPorNoche": 350.0, "capacidadMaxima": 2, "jacuzziPrivado": true, "incluyeMayordomo": true }
+
+### 409 Conflict - fechas solapadas en la misma habitación
+POST {{host}}/api/clientes/{{clienteId}}/reservas
+Content-Type: application/json
+
+{ "habitacionId": "{{estandarId}}", "fechaInicio": "2026-12-11", "fechaFin": "2026-12-12" }
+
+### 409 Conflict - reconfirmar una reserva ya confirmada
+POST {{host}}/api/clientes/{{clienteId}}/reservas/{{reserva1.response.body.$.idReserva}}/confirmar
+
+### 200 OK - cancelar una reserva confirmada (devuelve recargo aplicado)
+POST {{host}}/api/clientes/{{clienteId}}/reservas/{{reserva1.response.body.$.idReserva}}/cancelar
+
+### 409 Conflict - cancelar otra vez (simetría: CANCELADA es terminal)
+POST {{host}}/api/clientes/{{clienteId}}/reservas/{{reserva1.response.body.$.idReserva}}/cancelar
+
+### 404 Not Found
+GET {{host}}/api/clientes/00000000-0000-0000-0000-000000000001/resumen

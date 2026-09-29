@@ -1,0 +1,9 @@
+# Configuración común. La conexión a PostgreSQL vive en application.properties.
+# Para ejecutar SIN PostgreSQL: -Dspring.profiles.active=h2  (ver application-h2.properties)
+spring:
+  application:
+    name: sistema-reservas-hotel
+  jpa:
+    open-in-view: false
+server:
+  port: 8080

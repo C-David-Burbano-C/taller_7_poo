@@ -1,0 +1,15 @@
+# Documentacion y entregables (no se versionan)
+docs/
+README.md
+*.docx
+*.pdf
+
+# IDE / build local
+nbproject/private/
+.idea/
+*.iml
+
+
+# Build
+target/
+reservas_log.txt
